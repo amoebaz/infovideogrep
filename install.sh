@@ -37,9 +37,12 @@ pip install --upgrade pip -q
 pip install -r requirements.txt -q
 echo "  Installed: faster-whisper, yt-dlp, openai, pyyaml, httpx, pytest"
 
-# --- CUDA libraries for faster-whisper ---
-echo "[4/6] Installing CUDA libraries for GPU transcription..."
-if python -c "import ctypes; ctypes.CDLL('libcublas.so.12')" 2>/dev/null; then
+# --- CUDA libraries for faster-whisper (only if GPU is present) ---
+echo "[4/6] Checking GPU support..."
+if ! command -v nvidia-smi &>/dev/null; then
+    echo "  No NVIDIA GPU detected — running in CPU mode"
+    echo "  Make sure config.yaml has: whisper.device: cpu, whisper.compute_type: int8"
+elif python -c "import ctypes; ctypes.CDLL('libcublas.so.12')" 2>/dev/null; then
     echo "  CUDA libraries already available"
 else
     echo "  Installing nvidia-cublas-cu12 and nvidia-cudnn-cu12..."

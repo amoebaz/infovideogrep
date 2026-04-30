@@ -95,6 +95,8 @@ def process_message(
     categories: list[dict],
     llm_fallback_config: dict | None = None,
     max_duration_seconds: int | None = None,
+    whisper_device: str = "cpu",
+    whisper_compute_type: str = "int8",
 ) -> None:
     today = date.today().isoformat()
     url = parsed.get("url", "video reenviado sin enlace")
@@ -117,7 +119,12 @@ def process_message(
         return
     logger.info(f"Downloaded: {video_path}")
 
-    text = transcribe(video_path, model_size=whisper_model)
+    text = transcribe(
+        video_path,
+        model_size=whisper_model,
+        device=whisper_device,
+        compute_type=whisper_compute_type,
+    )
     logger.info(f"Transcription ({len(text)} chars): {text[:100]}...")
 
     if os.path.exists(video_path):
@@ -147,6 +154,8 @@ def poll_once(config: dict) -> int:
     bot_token = config["telegram"]["bot_token"]
     offset_file = config["telegram"]["offset_file"]
     whisper_model = config["whisper"]["model"]
+    whisper_device = config["whisper"].get("device", "cpu")
+    whisper_compute_type = config["whisper"].get("compute_type", "int8")
     llm_config = config["llm"]
     llm_fallback_config = config.get("llm_fallback")
     inbox_path = config["markdown"]["inbox_path"]
@@ -181,6 +190,8 @@ def poll_once(config: dict) -> int:
                         categories=categories,
                         llm_fallback_config=llm_fallback_config,
                         max_duration_seconds=max_duration_seconds,
+                        whisper_device=whisper_device,
+                        whisper_compute_type=whisper_compute_type,
                     )
                     processed += 1
                 except Exception as e:
