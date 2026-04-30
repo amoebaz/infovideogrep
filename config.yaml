@@ -15,8 +15,7 @@ processing:
 llm:
   base_url: "https://openrouter.ai/api/v1"
   api_key: "${OPENROUTER_API_KEY}"
-  # model: "z-ai/glm-4.5-air:free"
-  model: "minimax/minimax-m2.5:free"
+  model: "google/gemini-2.0-flash-exp:free"
 
 llm_fallback:
   base_url: "http://localhost:11434/v1"
