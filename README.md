@@ -174,4 +174,4 @@ python -m pytest tests/ -q
 
 ## Licencia
 
-Sin licencia explícita por ahora — código personal. Avisa si quieres reutilizarlo y abrimos una.
+[MIT](LICENSE) © Lolo
