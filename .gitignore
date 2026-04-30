@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.env
+data/
+output/
+
+# Editor / OS artifacts
+*~
+*.bak
+*.swp
+.DS_Store
+
+# Local tooling and dev artifacts
+.claude/
+MinIO/
+docs/superpowers/

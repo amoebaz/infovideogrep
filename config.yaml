@@ -1,0 +1,20 @@
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  offset_file: "./data/telegram_offset.txt"
+
+whisper:
+  model: "medium"
+
+llm:
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "${OPENROUTER_API_KEY}"
+  # model: "z-ai/glm-4.5-air:free"
+  model: "minimax/minimax-m2.5:free"
+
+llm_fallback:
+  base_url: "http://localhost:11434/v1"
+  api_key: ""
+  model: "qwen2.5:3b"
+
+obsidian:
+  inbox_path: "${OBSIDIAN_INBOX_PATH}"
