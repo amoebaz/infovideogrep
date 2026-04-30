@@ -16,7 +16,7 @@ llm:
   base_url: "http://localhost:11434/v1"
   api_key: ""
   model: "llama3.1:8b"
-obsidian:
+markdown:
   inbox_path: "./output/VideoInbox.md"
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -27,7 +27,7 @@ obsidian:
     assert config["telegram"]["bot_token"] == "TEST_TOKEN"
     assert config["whisper"]["model"] == "medium"
     assert config["llm"]["base_url"] == "http://localhost:11434/v1"
-    assert config["obsidian"]["inbox_path"] == "./output/VideoInbox.md"
+    assert config["markdown"]["inbox_path"] == "./output/VideoInbox.md"
     os.unlink(f.name)
 
 

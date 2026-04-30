@@ -1,22 +1,27 @@
 import re
 import httpx
 
-TIKTOK_URL_PATTERN = re.compile(
-    r"https?://(?:www\.|vm\.)?tiktok\.com/[^\s]+"
+VIDEO_URL_PATTERN = re.compile(
+    r"https?://"
+    r"(?:"
+        r"(?:www\.|vm\.)?tiktok\.com/[^\s]+"
+        r"|(?:www\.|m\.)?youtube\.com/(?:watch\?[^\s]+|shorts/[^\s]+)"
+        r"|youtu\.be/[^\s]+"
+        r"|(?:www\.)?instagram\.com/reels?/[^\s]+"
+    r")"
 )
 
 
 def parse_message(message: dict) -> dict | None:
-    # Check for forwarded/attached video
     if "video" in message:
         return {
             "type": "video",
             "file_id": message["video"]["file_id"],
+            "duration": message["video"].get("duration"),
         }
 
-    # Check for TikTok URL in text
     text = message.get("text", "")
-    match = TIKTOK_URL_PATTERN.search(text)
+    match = VIDEO_URL_PATTERN.search(text)
     if match:
         return {
             "type": "url",
@@ -41,7 +46,6 @@ def get_updates(bot_token: str, offset: int | None = None) -> list[dict]:
 
 
 def download_telegram_file(bot_token: str, file_id: str, dest_path: str) -> str:
-    # Get file path from Telegram
     response = httpx.get(
         f"https://api.telegram.org/bot{bot_token}/getFile",
         params={"file_id": file_id},
@@ -50,7 +54,6 @@ def download_telegram_file(bot_token: str, file_id: str, dest_path: str) -> str:
     response.raise_for_status()
     file_path = response.json()["result"]["file_path"]
 
-    # Download the file
     file_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
     with httpx.stream("GET", file_url, timeout=120.0) as stream:
         stream.raise_for_status()

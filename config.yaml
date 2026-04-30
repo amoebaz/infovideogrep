@@ -5,6 +5,11 @@ telegram:
 whisper:
   model: "medium"
 
+processing:
+  # Skip videos longer than this (Whisper passes can be very slow on long content).
+  # Set to null or remove to disable the guard.
+  max_duration_seconds: 3600
+
 llm:
   base_url: "https://openrouter.ai/api/v1"
   api_key: "${OPENROUTER_API_KEY}"
@@ -16,5 +21,15 @@ llm_fallback:
   api_key: ""
   model: "qwen2.5:3b"
 
-obsidian:
-  inbox_path: "${OBSIDIAN_INBOX_PATH}"
+categories:
+  - {name: "Software",  icon: "🖥️"}
+  - {name: "Serie",     icon: "📺"}
+  - {name: "Película",  icon: "🎬"}
+  - {name: "Música",    icon: "🎵"}
+  - {name: "Libro",     icon: "📚"}
+  - {name: "Lugar",     icon: "📍"}
+  - {name: "Receta",    icon: "🍳"}
+  - {name: "Otro",      icon: "📌"}
+
+markdown:
+  inbox_path: "${MARKDOWN_INBOX_PATH}"

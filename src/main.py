@@ -9,7 +9,7 @@ from datetime import date
 
 from src.config import load_config
 from src.telegram import parse_message, get_updates, read_offset, write_offset
-from src.downloader import download_video
+from src.downloader import download_video, DurationExceeded
 from src.transcriber import transcribe
 from src.extractor import extract_data
 from src.obsidian import format_entry, append_to_inbox
@@ -36,7 +36,6 @@ def _ensure_ollama_running(model: str) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # Wait for it to be ready
         for _ in range(15):
             time.sleep(1)
             try:
@@ -49,7 +48,6 @@ def _ensure_ollama_running(model: str) -> None:
             raise RuntimeError("ollama failed to start within 15 seconds")
         logger.info("Ollama started")
 
-    # Ensure the model is available (pulls if not present)
     result = subprocess.run(
         ["ollama", "list"],
         capture_output=True, text=True, timeout=10,
@@ -66,22 +64,21 @@ def _ensure_ollama_running(model: str) -> None:
 def _extract_with_fallback(
     text: str,
     llm_config: dict,
+    category_names: list[str],
     llm_fallback_config: dict | None,
 ) -> list[dict] | None:
     """Try primary LLM with retry, fall back to secondary if configured."""
-    # Try primary LLM (2 attempts)
     for attempt in range(2):
         try:
-            return extract_data(text, llm_config)
+            return extract_data(text, llm_config, category_names)
         except Exception as e:
             logger.warning(f"Primary LLM attempt {attempt + 1} failed: {e}")
 
-    # Try fallback LLM if configured
     if llm_fallback_config:
         logger.info("Switching to fallback LLM (Ollama)...")
         try:
             _ensure_ollama_running(llm_fallback_config["model"])
-            return extract_data(text, llm_fallback_config)
+            return extract_data(text, llm_fallback_config, category_names)
         except Exception as e:
             logger.warning(f"Fallback LLM failed: {e}")
 
@@ -95,41 +92,52 @@ def process_message(
     llm_config: dict,
     inbox_path: str,
     tmp_dir: str,
+    categories: list[dict],
     llm_fallback_config: dict | None = None,
+    max_duration_seconds: int | None = None,
 ) -> None:
     today = date.today().isoformat()
     url = parsed.get("url", "video reenviado sin enlace")
 
-    # Download
-    video_path = download_video(parsed, tmp_dir, bot_token)
+    category_names = [c["name"] for c in categories]
+    category_icons = {c["name"]: c["icon"] for c in categories}
+
+    try:
+        video_path = download_video(
+            parsed, tmp_dir, bot_token, max_duration_seconds=max_duration_seconds
+        )
+    except DurationExceeded as e:
+        entry = (
+            f"- ⏱️ **Duración excedida** "
+            f"({e.duration // 60} min, máximo {e.max_duration // 60} min)\n"
+            f"  [enlace al video]({url})\n"
+        )
+        append_to_inbox(inbox_path, entry, date_str=today)
+        logger.warning(f"Skipped video ({e.duration}s > {e.max_duration}s)")
+        return
     logger.info(f"Downloaded: {video_path}")
 
-    # Transcribe
     text = transcribe(video_path, model_size=whisper_model)
     logger.info(f"Transcription ({len(text)} chars): {text[:100]}...")
 
-    # Clean up video file
     if os.path.exists(video_path):
         os.remove(video_path)
 
-    # Handle empty transcription
     if not text.strip():
-        entry = format_entry([], url, date_str=today, failed=True)
+        entry = format_entry([], url, date_str=today, category_icons=category_icons, failed=True)
         append_to_inbox(inbox_path, entry, date_str=today)
         logger.warning("Empty transcription, marked for manual review")
         return
 
-    # Extract data: try primary LLM, then fallback if configured
-    items = _extract_with_fallback(text, llm_config, llm_fallback_config)
+    items = _extract_with_fallback(text, llm_config, category_names, llm_fallback_config)
 
     if items is None:
-        # Save raw transcription as fallback
         entry = f"- 📝 **Transcripción sin procesar**: \"{text[:200]}...\"\n  [enlace al video]({url})\n"
         append_to_inbox(inbox_path, entry, date_str=today)
         logger.error("LLM extraction failed, saved raw transcription")
         return
 
-    entry = format_entry(items, url, date_str=today)
+    entry = format_entry(items, url, date_str=today, category_icons=category_icons)
     append_to_inbox(inbox_path, entry, date_str=today)
     logger.info(f"Added {len(items)} items to inbox")
 
@@ -141,7 +149,9 @@ def poll_once(config: dict) -> int:
     whisper_model = config["whisper"]["model"]
     llm_config = config["llm"]
     llm_fallback_config = config.get("llm_fallback")
-    inbox_path = config["obsidian"]["inbox_path"]
+    inbox_path = config["markdown"]["inbox_path"]
+    categories = config.get("categories", [])
+    max_duration_seconds = config.get("processing", {}).get("max_duration_seconds")
 
     offset = read_offset(offset_file)
     updates = get_updates(bot_token, offset)
@@ -168,13 +178,14 @@ def poll_once(config: dict) -> int:
                         llm_config=llm_config,
                         inbox_path=inbox_path,
                         tmp_dir=tmp_dir,
+                        categories=categories,
                         llm_fallback_config=llm_fallback_config,
+                        max_duration_seconds=max_duration_seconds,
                     )
                     processed += 1
                 except Exception as e:
                     logger.error(f"Failed to process message: {e}")
 
-            # Update offset after each message
             new_offset = update["update_id"] + 1
             write_offset(offset_file, new_offset)
 
@@ -182,7 +193,7 @@ def poll_once(config: dict) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="InfoVideoGrep — extract info from TikTok videos")
+    parser = argparse.ArgumentParser(description="InfoVideoGrep — extract info from short/long videos")
     parser.add_argument(
         "--watch", "-w",
         type=int,

@@ -2,9 +2,10 @@ import os
 import tempfile
 from src.obsidian import format_entry, append_to_inbox
 
+
 CATEGORY_ICONS = {
     "Software": "🖥️",
-    "Serie": "🎬",
+    "Serie": "📺",
     "Película": "🎬",
     "Música": "🎵",
 }
@@ -13,7 +14,7 @@ CATEGORY_ICONS = {
 def test_format_entry_software():
     items = [{"category": "Software", "name": "Cursor", "description": "Editor de código con IA"}]
     url = "https://www.tiktok.com/@user/video/123"
-    result = format_entry(items, url, date_str="2026-03-23")
+    result = format_entry(items, url, date_str="2026-03-23", category_icons=CATEGORY_ICONS)
     assert "🖥️" in result
     assert "**Software**" in result
     assert "Cursor" in result
@@ -25,15 +26,22 @@ def test_format_entry_multiple_items():
         {"category": "Software", "name": "Cursor", "description": "Editor con IA"},
         {"category": "Serie", "name": "Severance", "description": "Thriller en Apple TV+"},
     ]
-    result = format_entry(items, "https://tiktok.com/v/1", date_str="2026-03-23")
+    result = format_entry(items, "https://tiktok.com/v/1", date_str="2026-03-23", category_icons=CATEGORY_ICONS)
     assert "🖥️" in result
-    assert "🎬" in result
+    assert "📺" in result
     assert "Cursor" in result
     assert "Severance" in result
 
 
+def test_format_entry_unknown_category_uses_default_icon():
+    items = [{"category": "Receta", "name": "Tortilla", "description": "Patata"}]
+    result = format_entry(items, "https://tiktok.com/v/1", date_str="2026-03-23", category_icons=CATEGORY_ICONS)
+    assert "📌" in result
+    assert "**Receta**" in result
+
+
 def test_format_entry_no_transcription():
-    result = format_entry([], "https://tiktok.com/v/1", date_str="2026-03-23", failed=True)
+    result = format_entry([], "https://tiktok.com/v/1", date_str="2026-03-23", category_icons=CATEGORY_ICONS, failed=True)
     assert "no se pudo transcribir" in result.lower()
 
 
@@ -53,7 +61,7 @@ def test_append_to_inbox_groups_same_date():
     with tempfile.TemporaryDirectory() as tmpdir:
         inbox_path = os.path.join(tmpdir, "VideoInbox.md")
         entry1 = "- 🖥️ **Software**: Cursor — \"Editor con IA\"\n  [enlace](https://tiktok.com/v/1)\n"
-        entry2 = "- 🎬 **Serie**: Severance — \"Thriller\"\n  [enlace](https://tiktok.com/v/2)\n"
+        entry2 = "- 📺 **Serie**: Severance — \"Thriller\"\n  [enlace](https://tiktok.com/v/2)\n"
         append_to_inbox(inbox_path, entry1, date_str="2026-03-23")
         append_to_inbox(inbox_path, entry2, date_str="2026-03-23")
 

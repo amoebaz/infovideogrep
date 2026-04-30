@@ -1,8 +1,15 @@
 import os
 import tempfile
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.main import process_message
+from src.downloader import DurationExceeded
+
+
+CATEGORIES = [
+    {"name": "Software", "icon": "🖥️"},
+    {"name": "Serie", "icon": "📺"},
+    {"name": "Película", "icon": "🎬"},
+]
 
 
 def test_process_message_url_full_pipeline():
@@ -25,6 +32,7 @@ def test_process_message_url_full_pipeline():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
             )
 
             mock_dl.assert_called_once()
@@ -54,6 +62,7 @@ def test_process_message_failed_transcription():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
             )
 
         with open(inbox_path, "r") as f:
@@ -81,6 +90,7 @@ def test_process_message_llm_all_fail_no_fallback():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
             )
 
         with open(inbox_path, "r") as f:
@@ -96,9 +106,8 @@ def test_process_message_fallback_llm_succeeds():
     fallback_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "qwen2.5:3b"}
     items = [{"category": "Software", "name": "Neovim", "description": "Editor de terminal"}]
 
-    # extract_data fails twice (primary), then succeeds (fallback)
     call_count = 0
-    def mock_extract(text, config):
+    def mock_extract(text, config, category_names):
         nonlocal call_count
         call_count += 1
         if call_count <= 2:
@@ -121,6 +130,7 @@ def test_process_message_fallback_llm_succeeds():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
                 llm_fallback_config=fallback_config,
             )
 
@@ -151,6 +161,7 @@ def test_process_message_llm_succeeds_on_retry():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
             )
 
         with open(inbox_path, "r") as f:
@@ -159,8 +170,39 @@ def test_process_message_llm_succeeds_on_retry():
         assert "transcripción sin procesar" not in content.lower()
 
 
+def test_process_message_duration_exceeded_writes_warning():
+    """Long video raises DurationExceeded → friendly inbox entry, no transcription."""
+    parsed = {"type": "url", "url": "https://www.youtube.com/watch?v=longone"}
+    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
+
+        with (
+            patch("src.main.download_video", side_effect=DurationExceeded(7200, 3600)),
+            patch("src.main.transcribe") as mock_tr,
+        ):
+            process_message(
+                parsed=parsed,
+                bot_token="TOKEN",
+                whisper_model="medium",
+                llm_config=llm_config,
+                inbox_path=inbox_path,
+                tmp_dir=tmpdir,
+                categories=CATEGORIES,
+                max_duration_seconds=3600,
+            )
+            mock_tr.assert_not_called()
+
+        with open(inbox_path, "r") as f:
+            content = f.read()
+        assert "Duración excedida" in content
+        assert "120 min" in content  # 7200s = 120 min
+        assert "60 min" in content   # 3600s = 60 min
+
+
 def test_process_message_forwarded_video_no_url():
-    """Forwarded video has no TikTok URL — should use fallback text."""
+    """Forwarded video has no source URL — should use fallback text."""
     parsed = {"type": "video", "file_id": "ABC123"}
     llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
     items = [{"category": "Serie", "name": "Lost", "description": "Misterio en isla"}]
@@ -180,6 +222,7 @@ def test_process_message_forwarded_video_no_url():
                 llm_config=llm_config,
                 inbox_path=inbox_path,
                 tmp_dir=tmpdir,
+                categories=CATEGORIES,
             )
 
         with open(inbox_path, "r") as f:

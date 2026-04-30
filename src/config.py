@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 
-REQUIRED_SECTIONS = ["telegram", "whisper", "llm", "obsidian"]
+REQUIRED_SECTIONS = ["telegram", "whisper", "llm", "markdown"]
 _VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 
 
