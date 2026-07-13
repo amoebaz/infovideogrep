@@ -3,104 +3,158 @@ import tempfile
 from unittest.mock import patch
 from src.main import process_message
 from src.downloader import DurationExceeded
+from src.obsidian import PENDING_DIR, PROCESSED_DIR
 
 
 CATEGORIES = [
     {"name": "Software", "icon": "🖥️"},
     {"name": "Serie", "icon": "📺"},
     {"name": "Película", "icon": "🎬"},
+    {"name": "IA", "icon": "🤖"},
 ]
 
+LLM_CONFIG = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
 
-def test_process_message_url_full_pipeline():
+
+def _markdown_config(tmpdir):
+    return {
+        "vault_inbox_dir": os.path.join(tmpdir, "VideoInbox"),
+        "summary_files": [
+            {"file": "Series y Películas.md", "categories": ["Serie", "Película"]},
+            {"file": "Software.md", "categories": ["Software"]},
+            {"file": "IA.md", "categories": ["IA"]},
+        ],
+        "default_summary_file": "Otros.md",
+    }
+
+
+def _only_file(directory):
+    files = os.listdir(directory)
+    assert len(files) == 1, f"expected 1 file in {directory}, got {files}"
+    with open(os.path.join(directory, files[0])) as f:
+        return files[0], f.read()
+
+
+def _run(parsed, markdown_config, tmpdir, **kwargs):
+    process_message(
+        parsed=parsed,
+        bot_token="TOKEN",
+        whisper_model="medium",
+        llm_config=kwargs.pop("llm_config", LLM_CONFIG),
+        markdown_config=markdown_config,
+        tmp_dir=tmpdir,
+        categories=CATEGORIES,
+        **kwargs,
+    )
+
+
+def test_success_writes_summary_and_archives_transcription():
     parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/123"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
     items = [{"category": "Software", "name": "Cursor", "description": "Editor con IA"}]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
-        with (
-            patch("src.main.download_video", return_value="/tmp/fake.mp4") as mock_dl,
-            patch("src.main.transcribe", return_value="Hablamos de Cursor") as mock_tr,
-            patch("src.main.extract_data", return_value=items) as mock_ex,
-        ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
-
-            mock_dl.assert_called_once()
-            mock_tr.assert_called_once()
-            mock_ex.assert_called_once()
-
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Cursor" in content
-
-
-def test_process_message_failed_transcription():
-    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/456"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
-            patch("src.main.transcribe", return_value=""),
+            patch("src.main.transcribe", return_value="Hablamos de Cursor"),
+            patch("src.main.extract_data", return_value=items),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
+            _run(parsed, md, tmpdir)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "no se pudo transcribir" in content.lower()
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md")) as f:
+            summary = f.read()
+        assert "Cursor" in summary
+        assert "🖥️" in summary
+        assert parsed["url"] in summary
+
+        pending = os.path.join(md["vault_inbox_dir"], PENDING_DIR)
+        assert os.listdir(pending) == []
+        name, content = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert "tiktok" in name
+        assert "estado: procesada" in content
+        assert "Hablamos de Cursor" in content
 
 
-def test_process_message_llm_all_fail_no_fallback():
-    """LLM fails twice, no fallback configured — raw transcription saved."""
-    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/789"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
+def test_items_split_across_summary_files():
+    parsed = {"type": "url", "url": "https://youtu.be/abc"}
+    items = [
+        {"category": "Serie", "name": "Severance", "description": "Thriller"},
+        {"category": "Software", "name": "Zed", "description": "Editor"},
+        {"category": "Receta", "name": "Tortilla", "description": "Patata"},
+    ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
+        md = _markdown_config(tmpdir)
+        with (
+            patch("src.main.download_video", return_value="/tmp/fake.mp4"),
+            patch("src.main.transcribe", return_value="texto"),
+            patch("src.main.extract_data", return_value=items),
+        ):
+            _run(parsed, md, tmpdir)
 
+        vault = md["vault_inbox_dir"]
+        with open(os.path.join(vault, "Series y Películas.md")) as f:
+            assert "Severance" in f.read()
+        with open(os.path.join(vault, "Software.md")) as f:
+            assert "Zed" in f.read()
+        with open(os.path.join(vault, "Otros.md")) as f:
+            assert "Tortilla" in f.read()
+
+
+def test_llm_failure_leaves_pending_with_error_state():
+    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/789"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
             patch("src.main.transcribe", return_value="Hablamos de algo interesante"),
             patch("src.main.extract_data", side_effect=Exception("LLM down")),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
+            _run(parsed, md, tmpdir)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "transcripción sin procesar" in content.lower()
+        _, content = _only_file(os.path.join(md["vault_inbox_dir"], PENDING_DIR))
+        assert "estado: error_llm" in content
+        assert "intentos: 1" in content
         assert "Hablamos de algo interesante" in content
+        assert not os.path.exists(os.path.join(md["vault_inbox_dir"], "Software.md"))
 
 
-def test_process_message_llm_chain_second_model_succeeds():
-    """First model in the chain fails, second model succeeds — no fallback needed."""
+def test_empty_transcription_archived_with_state():
+    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/456"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        md = _markdown_config(tmpdir)
+        with (
+            patch("src.main.download_video", return_value="/tmp/fake.mp4"),
+            patch("src.main.transcribe", return_value=""),
+        ):
+            _run(parsed, md, tmpdir)
+
+        _, content = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert "estado: transcripcion_vacia" in content
+        assert parsed["url"] in content
+
+
+def test_duration_exceeded_archived_with_state():
+    parsed = {"type": "url", "url": "https://www.youtube.com/watch?v=longone"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        md = _markdown_config(tmpdir)
+        with (
+            patch("src.main.download_video", side_effect=DurationExceeded(7200, 3600)),
+            patch("src.main.transcribe") as mock_tr,
+        ):
+            _run(parsed, md, tmpdir, max_duration_seconds=3600)
+            mock_tr.assert_not_called()
+
+        _, content = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert "estado: duracion_excedida" in content
+        assert "120 min" in content
+        assert "60 min" in content
+
+
+def test_llm_chain_second_model_succeeds():
     parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/555"}
     llm_config = {
         "base_url": "https://openrouter.ai/api/v1",
@@ -115,31 +169,20 @@ def test_process_message_llm_chain_second_model_succeeds():
         raise Exception("404 No endpoints found")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
             patch("src.main.transcribe", return_value="Hablamos de Zed"),
             patch("src.main.extract_data", side_effect=mock_extract),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
+            _run(parsed, md, tmpdir, llm_config=llm_config)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Zed" in content
-        assert "transcripción sin procesar" not in content.lower()
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md")) as f:
+            assert "Zed" in f.read()
+        assert os.listdir(os.path.join(md["vault_inbox_dir"], PENDING_DIR)) == []
 
 
-def test_process_message_fallback_llm_succeeds():
-    """Primary LLM fails twice, fallback LLM succeeds."""
+def test_fallback_llm_succeeds():
     parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/999"}
     llm_config = {"base_url": "https://openrouter.ai/api/v1", "api_key": "key", "model": "remote"}
     fallback_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "qwen2.5:3b"}
@@ -154,117 +197,70 @@ def test_process_message_fallback_llm_succeeds():
         return items
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
             patch("src.main.transcribe", return_value="Hablamos de Neovim"),
             patch("src.main.extract_data", side_effect=mock_extract),
             patch("src.main._ensure_ollama_running"),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-                llm_fallback_config=fallback_config,
-            )
+            _run(parsed, md, tmpdir, llm_config=llm_config, llm_fallback_config=fallback_config)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Neovim" in content
-        assert "transcripción sin procesar" not in content.lower()
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md")) as f:
+            assert "Neovim" in f.read()
 
 
-def test_process_message_llm_succeeds_on_retry():
-    """LLM fails first attempt, succeeds on second."""
+def test_llm_succeeds_on_retry():
     parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/101"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
     items = [{"category": "Software", "name": "Docker", "description": "Contenedores"}]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
             patch("src.main.transcribe", return_value="Hablamos de Docker"),
             patch("src.main.extract_data", side_effect=[Exception("timeout"), items]),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
+            _run(parsed, md, tmpdir)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Docker" in content
-        assert "transcripción sin procesar" not in content.lower()
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md")) as f:
+            assert "Docker" in f.read()
 
 
-def test_process_message_duration_exceeded_writes_warning():
-    """Long video raises DurationExceeded → friendly inbox entry, no transcription."""
-    parsed = {"type": "url", "url": "https://www.youtube.com/watch?v=longone"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
+def test_no_items_archives_without_summary():
+    """LLM responde pero sin items relevantes — se archiva sin escribir resúmenes."""
+    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/222"}
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
-            patch("src.main.download_video", side_effect=DurationExceeded(7200, 3600)),
-            patch("src.main.transcribe") as mock_tr,
+            patch("src.main.download_video", return_value="/tmp/fake.mp4"),
+            patch("src.main.transcribe", return_value="bla bla sin contenido"),
+            patch("src.main.extract_data", return_value=[]),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-                max_duration_seconds=3600,
-            )
-            mock_tr.assert_not_called()
+            _run(parsed, md, tmpdir)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Duración excedida" in content
-        assert "120 min" in content  # 7200s = 120 min
-        assert "60 min" in content   # 3600s = 60 min
+        _, content = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert "estado: procesada" in content
+        assert not os.path.exists(os.path.join(md["vault_inbox_dir"], "Software.md"))
 
 
-def test_process_message_forwarded_video_no_url():
-    """Forwarded video has no source URL — should use fallback text."""
+def test_forwarded_video_no_url():
     parsed = {"type": "video", "file_id": "ABC123"}
-    llm_config = {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "test"}
     items = [{"category": "Serie", "name": "Lost", "description": "Misterio en isla"}]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
-
+        md = _markdown_config(tmpdir)
         with (
             patch("src.main.download_video", return_value="/tmp/fake.mp4"),
             patch("src.main.transcribe", return_value="Hablamos de Lost"),
             patch("src.main.extract_data", return_value=items),
         ):
-            process_message(
-                parsed=parsed,
-                bot_token="TOKEN",
-                whisper_model="medium",
-                llm_config=llm_config,
-                inbox_path=inbox_path,
-                tmp_dir=tmpdir,
-                categories=CATEGORIES,
-            )
+            _run(parsed, md, tmpdir)
 
-        with open(inbox_path, "r") as f:
-            content = f.read()
-        assert "Lost" in content
-        assert "video reenviado sin enlace" in content
+        with open(os.path.join(md["vault_inbox_dir"], "Series y Películas.md")) as f:
+            summary = f.read()
+        assert "Lost" in summary
+        assert "video reenviado sin enlace" in summary
+        name, _ = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert "telegram" in name

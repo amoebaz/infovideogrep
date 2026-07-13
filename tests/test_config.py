@@ -17,7 +17,7 @@ llm:
   api_key: ""
   model: "llama3.1:8b"
 markdown:
-  inbox_path: "./output/VideoInbox.md"
+  vault_inbox_dir: "./output/VideoInbox"
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(config_content)
@@ -27,7 +27,7 @@ markdown:
     assert config["telegram"]["bot_token"] == "TEST_TOKEN"
     assert config["whisper"]["model"] == "medium"
     assert config["llm"]["base_url"] == "http://localhost:11434/v1"
-    assert config["markdown"]["inbox_path"] == "./output/VideoInbox.md"
+    assert config["markdown"]["vault_inbox_dir"] == "./output/VideoInbox"
     os.unlink(f.name)
 
 

@@ -31,6 +31,7 @@ llm_fallback:
 
 categories:
   - {name: "Software",  icon: "🖥️"}
+  - {name: "IA",        icon: "🤖"}
   - {name: "Serie",     icon: "📺"}
   - {name: "Película",  icon: "🎬"}
   - {name: "Música",    icon: "🎵"}
@@ -40,4 +41,14 @@ categories:
   - {name: "Otro",      icon: "📌"}
 
 markdown:
-  inbox_path: "${MARKDOWN_INBOX_PATH}"
+  # Carpeta del vault de Obsidian donde viven Pendientes/, Procesadas/
+  # y los ficheros de resumen por tema.
+  vault_inbox_dir: "${VIDEOINBOX_DIR}"
+  # Mapeo categoría → fichero de resumen. Categorías sin mapeo caen en
+  # default_summary_file.
+  summary_files:
+    - {file: "Series y Películas.md", categories: ["Serie", "Película"]}
+    - {file: "Software.md",           categories: ["Software"]}
+    - {file: "IA.md",                 categories: ["IA"]}
+    - {file: "Otros.md",              categories: ["Música", "Libro", "Lugar", "Receta", "Otro"]}
+  default_summary_file: "Otros.md"

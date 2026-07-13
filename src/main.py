@@ -5,14 +5,21 @@ import shutil
 import subprocess
 import tempfile
 import time
-from datetime import date
+from datetime import date, datetime
 
 from src.config import load_config
 from src.telegram import parse_message, get_updates, read_offset, write_offset
 from src.downloader import download_video, DurationExceeded
 from src.transcriber import transcribe
 from src.extractor import extract_data
-from src.obsidian import format_entry, append_to_inbox
+from src.obsidian import (
+    format_entry,
+    append_to_markdown,
+    save_transcription,
+    update_estado,
+    mark_processed,
+    route_items,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,12 +99,24 @@ def _extract_with_fallback(
     return None
 
 
+def _source_slug(parsed: dict) -> str:
+    """Short platform name for the transcription filename."""
+    url = parsed.get("url", "")
+    if "tiktok" in url:
+        return "tiktok"
+    if "youtube" in url or "youtu.be" in url:
+        return "youtube"
+    if "instagram" in url:
+        return "instagram"
+    return "telegram"
+
+
 def process_message(
     parsed: dict,
     bot_token: str,
     whisper_model: str,
     llm_config: dict,
-    inbox_path: str,
+    markdown_config: dict,
     tmp_dir: str,
     categories: list[dict],
     llm_fallback_config: dict | None = None,
@@ -105,8 +124,14 @@ def process_message(
     whisper_device: str = "cpu",
     whisper_compute_type: str = "int8",
 ) -> None:
-    today = date.today().isoformat()
+    now = datetime.now()
+    today = now.date().isoformat()
     url = parsed.get("url", "video reenviado sin enlace")
+    slug = _source_slug(parsed)
+
+    vault_dir = markdown_config["vault_inbox_dir"]
+    summary_files = markdown_config["summary_files"]
+    default_file = markdown_config["default_summary_file"]
 
     category_names = [c["name"] for c in categories]
     category_icons = {c["name"]: c["icon"] for c in categories}
@@ -116,12 +141,14 @@ def process_message(
             parsed, tmp_dir, bot_token, max_duration_seconds=max_duration_seconds
         )
     except DurationExceeded as e:
-        entry = (
-            f"- ⏱️ **Duración excedida** "
-            f"({e.duration // 60} min, máximo {e.max_duration // 60} min)\n"
-            f"  [enlace al video]({url})\n"
+        save_transcription(
+            vault_dir, url=url, dt=now, slug=slug, estado="duracion_excedida",
+            text=(
+                f"Duración excedida: {e.duration // 60} min "
+                f"(máximo {e.max_duration // 60} min). Sin transcripción.\n\n"
+                f"[enlace al video]({url})"
+            ),
         )
-        append_to_inbox(inbox_path, entry, date_str=today)
         logger.warning(f"Skipped video ({e.duration}s > {e.max_duration}s)")
         return
     logger.info(f"Downloaded: {video_path}")
@@ -138,22 +165,28 @@ def process_message(
         os.remove(video_path)
 
     if not text.strip():
-        entry = format_entry([], url, date_str=today, category_icons=category_icons, failed=True)
-        append_to_inbox(inbox_path, entry, date_str=today)
-        logger.warning("Empty transcription, marked for manual review")
+        save_transcription(
+            vault_dir, url=url, dt=now, slug=slug, estado="transcripcion_vacia",
+            text=f"Whisper no produjo texto.\n\n[enlace al video]({url})",
+        )
+        logger.warning("Empty transcription, archived with state")
         return
+
+    pending_path = save_transcription(vault_dir, url=url, dt=now, slug=slug, text=text)
+    logger.info(f"Transcription saved: {pending_path}")
 
     items = _extract_with_fallback(text, llm_config, category_names, llm_fallback_config)
 
     if items is None:
-        entry = f"- 📝 **Transcripción sin procesar**: \"{text[:200]}...\"\n  [enlace al video]({url})\n"
-        append_to_inbox(inbox_path, entry, date_str=today)
-        logger.error("LLM extraction failed, saved raw transcription")
+        update_estado(pending_path, "error_llm", intentos=1)
+        logger.error("LLM extraction failed, transcription left pending")
         return
 
-    entry = format_entry(items, url, date_str=today, category_icons=category_icons)
-    append_to_inbox(inbox_path, entry, date_str=today)
-    logger.info(f"Added {len(items)} items to inbox")
+    for filename, file_items in route_items(items, summary_files, default_file).items():
+        entry = format_entry(file_items, url, date_str=today, category_icons=category_icons)
+        append_to_markdown(os.path.join(vault_dir, filename), entry, date_str=today)
+    mark_processed(pending_path, vault_dir)
+    logger.info(f"Added {len(items)} items across summary files")
 
 
 def poll_once(config: dict) -> int:
@@ -165,7 +198,7 @@ def poll_once(config: dict) -> int:
     whisper_compute_type = config["whisper"].get("compute_type", "int8")
     llm_config = config["llm"]
     llm_fallback_config = config.get("llm_fallback")
-    inbox_path = config["markdown"]["inbox_path"]
+    markdown_config = config["markdown"]
     categories = config.get("categories", [])
     max_duration_seconds = config.get("processing", {}).get("max_duration_seconds")
 
@@ -192,7 +225,7 @@ def poll_once(config: dict) -> int:
                         bot_token=bot_token,
                         whisper_model=whisper_model,
                         llm_config=llm_config,
-                        inbox_path=inbox_path,
+                        markdown_config=markdown_config,
                         tmp_dir=tmp_dir,
                         categories=categories,
                         llm_fallback_config=llm_fallback_config,
