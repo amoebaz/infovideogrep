@@ -1,6 +1,9 @@
 import json
+import logging
 import re
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 _FENCE_OPEN = re.compile(r"^```[a-zA-Z]*\n?")
@@ -48,7 +51,10 @@ def _parse_items(content: str | None) -> list[dict]:
     if not isinstance(items, list):
         raise ValueError("unparseable LLM response")
 
-    return [item for item in items if _valid_item(item)]
+    valid = [item for item in items if _valid_item(item)]
+    if len(valid) < len(items):
+        logger.warning(f"Dropped {len(items) - len(valid)} malformed items from LLM response")
+    return valid
 
 
 SYSTEM_PROMPT_TEMPLATE = """Eres un asistente que extrae información relevante de transcripciones de vídeos (TikTok, YouTube, Instagram Reels, etc.).
