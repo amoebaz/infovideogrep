@@ -5,7 +5,7 @@ lanzarse a mano pegando el prompt en una sesión de Claude Code en este repo.
 
 ## Programación
 
-- Frecuencia: cada 6 horas (`0 */6 * * *`)
+- Frecuencia: cada 6 horas (`17 */6 * * *`)
 - Directorio de trabajo: raíz de este repo
 
 ## Prompt
@@ -14,7 +14,8 @@ Procesa las transcripciones de vídeo pendientes:
 
 1. Lee `config.yaml` para obtener las categorías permitidas y el mapeo
    `markdown.summary_files` / `markdown.default_summary_file`. La carpeta del
-   vault es el valor de `VIDEOINBOX_DIR` en `.env`.
+   vault se indica al final de este prompt (el script lanzador la inyecta).
+   Si ejecutas esto a mano, usa el valor de `VIDEOINBOX_DIR` en `.env`.
 2. Lista los ficheros `*.md` de la subcarpeta `Pendientes/`. Si no hay
    ninguno, termina sin hacer nada.
 3. Para cada fichero:

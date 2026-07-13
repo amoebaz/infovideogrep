@@ -103,7 +103,14 @@ processing:
 llm:
   base_url: "https://openrouter.ai/api/v1"
   api_key: "${OPENROUTER_API_KEY}"
-  model: "minimax/minimax-m2.5:free"
+  # Los modelos :free de OpenRouter rotan entre 429/503/ok según el proveedor
+  # upstream, así que probamos varios en orden hasta que uno responda.
+  # OJO: no todos los modelos tienen variante :free (p.ej. minimax solo es de
+  # pago → :free da 404). Verifica con la API antes de añadir uno nuevo.
+  models:
+    - "z-ai/glm-4.5-air:free"
+    - "qwen/qwen3-next-80b-a3b-instruct:free"
+    - "meta-llama/llama-3.3-70b-instruct:free"
 
 llm_fallback:                 # opcional
   base_url: "http://localhost:11434/v1"
@@ -180,7 +187,7 @@ Estados posibles:
 | `duracion_excedida`    | vídeo descartado por exceder `processing.max_duration_seconds`          | `Procesadas/` |
 | `transcripcion_vacia`  | Whisper no produjo texto                                                 | `Procesadas/` |
 
-Las transcripciones que quedan en `Pendientes/` con `estado: error_llm` las recoge la tarea programada de Claude (cada 6 h) descrita en [`docs/cowork-task.md`](docs/cowork-task.md), que las clasifica, reparte los items en los ficheros de resumen y las mueve a `Procesadas/`.
+Las transcripciones que quedan en `Pendientes/` con `estado: error_llm` las recoge la tarea programada de Claude (cada 6 h) descrita en [`docs/cowork-task.md`](docs/cowork-task.md), que las clasifica, reparte los items en los ficheros de resumen y las mueve a `Procesadas/`. El mecanismo es [`scripts/process-pending.sh`](scripts/process-pending.sh), invocado desde el crontab del usuario (`17 */6 * * * /mnt/e/__DEV__/infovideogrep/scripts/process-pending.sh`); registra su actividad en `data/cowork.log` y se salta la llamada a Claude cuando no hay nada pendiente.
 
 ## Uso
 
