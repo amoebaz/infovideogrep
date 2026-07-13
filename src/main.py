@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from datetime import date, datetime
+from datetime import datetime
 
 from src.config import load_config
 from src.telegram import parse_message, get_updates, read_offset, write_offset
