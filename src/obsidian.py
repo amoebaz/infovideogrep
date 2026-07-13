@@ -98,12 +98,29 @@ def format_entry(
     return "\n".join(lines) + "\n"
 
 
-def append_to_inbox(inbox_path: str, entry: str, date_str: str) -> None:
+def route_items(
+    items: list[dict],
+    summary_files: list[dict],
+    default_file: str,
+) -> dict[str, list[dict]]:
+    category_to_file = {
+        category: entry["file"]
+        for entry in summary_files
+        for category in entry["categories"]
+    }
+    routed: dict[str, list[dict]] = {}
+    for item in items:
+        filename = category_to_file.get(item.get("category"), default_file)
+        routed.setdefault(filename, []).append(item)
+    return routed
+
+
+def append_to_markdown(path: str, entry: str, date_str: str) -> None:
     header = f"## {date_str}"
 
     content = ""
-    if os.path.exists(inbox_path):
-        with open(inbox_path, "r") as f:
+    if os.path.exists(path):
+        with open(path, "r") as f:
             content = f.read()
 
     if header in content:
@@ -120,8 +137,8 @@ def append_to_inbox(inbox_path: str, entry: str, date_str: str) -> None:
             content = content.rstrip() + "\n\n"
         content += header + "\n\n" + entry + "\n"
 
-    dirname = os.path.dirname(inbox_path)
+    dirname = os.path.dirname(path)
     if dirname:
         os.makedirs(dirname, exist_ok=True)
-    with open(inbox_path, "w") as f:
+    with open(path, "w") as f:
         f.write(content)

@@ -4,7 +4,8 @@ from datetime import datetime
 
 from src.obsidian import (
     format_entry,
-    append_to_inbox,
+    append_to_markdown,
+    route_items,
     save_transcription,
     update_estado,
     mark_processed,
@@ -55,31 +56,60 @@ def test_format_entry_no_transcription():
     assert "no se pudo transcribir" in result.lower()
 
 
-def test_append_to_inbox_creates_file():
+def test_append_to_markdown_creates_file():
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
+        path = os.path.join(tmpdir, "VideoInbox.md")
         entry = "- 🖥️ **Software**: Cursor — \"Editor con IA\"\n  [enlace](https://tiktok.com/v/1)\n"
-        append_to_inbox(inbox_path, entry, date_str="2026-03-23")
+        append_to_markdown(path, entry, date_str="2026-03-23")
 
-        with open(inbox_path, "r") as f:
+        with open(path, "r") as f:
             content = f.read()
         assert "## 2026-03-23" in content
         assert "Cursor" in content
 
 
-def test_append_to_inbox_groups_same_date():
+def test_append_to_markdown_groups_same_date():
     with tempfile.TemporaryDirectory() as tmpdir:
-        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
+        path = os.path.join(tmpdir, "VideoInbox.md")
         entry1 = "- 🖥️ **Software**: Cursor — \"Editor con IA\"\n  [enlace](https://tiktok.com/v/1)\n"
         entry2 = "- 📺 **Serie**: Severance — \"Thriller\"\n  [enlace](https://tiktok.com/v/2)\n"
-        append_to_inbox(inbox_path, entry1, date_str="2026-03-23")
-        append_to_inbox(inbox_path, entry2, date_str="2026-03-23")
+        append_to_markdown(path, entry1, date_str="2026-03-23")
+        append_to_markdown(path, entry2, date_str="2026-03-23")
 
-        with open(inbox_path, "r") as f:
+        with open(path, "r") as f:
             content = f.read()
         assert content.count("## 2026-03-23") == 1
         assert "Cursor" in content
         assert "Severance" in content
+
+
+SUMMARY_FILES = [
+    {"file": "Series y Películas.md", "categories": ["Serie", "Película"]},
+    {"file": "Software.md", "categories": ["Software"]},
+    {"file": "IA.md", "categories": ["IA"]},
+]
+
+
+def test_route_items_maps_categories_to_files():
+    items = [
+        {"category": "Serie", "name": "Severance", "description": "d"},
+        {"category": "Película", "name": "Dune", "description": "d"},
+        {"category": "Software", "name": "Cursor", "description": "d"},
+    ]
+    routed = route_items(items, SUMMARY_FILES, default_file="Otros.md")
+    assert [i["name"] for i in routed["Series y Películas.md"]] == ["Severance", "Dune"]
+    assert [i["name"] for i in routed["Software.md"]] == ["Cursor"]
+    assert "Otros.md" not in routed
+
+
+def test_route_items_unmapped_category_goes_to_default():
+    items = [{"category": "Receta", "name": "Tortilla", "description": "d"}]
+    routed = route_items(items, SUMMARY_FILES, default_file="Otros.md")
+    assert [i["name"] for i in routed["Otros.md"]] == ["Tortilla"]
+
+
+def test_route_items_empty():
+    assert route_items([], SUMMARY_FILES, default_file="Otros.md") == {}
 
 
 DT = datetime(2026, 7, 13, 18, 42)
