@@ -195,6 +195,7 @@ Las transcripciones que quedan en `Pendientes/` con `estado: error_llm` las reco
 ./run.sh                # un único poll y termina
 ./run.sh --watch        # bucle continuo, polea cada 60 s
 ./run.sh --watch 30     # bucle continuo, polea cada 30 s
+./run.sh --urls urls.txt  # procesa una lista de URLs (una por línea, admite # comentarios)
 ```
 
 `--watch` es Ctrl+C para detener.

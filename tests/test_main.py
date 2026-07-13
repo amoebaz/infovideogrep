@@ -264,3 +264,78 @@ def test_forwarded_video_no_url():
         assert "video reenviado sin enlace" in summary
         name, _ = _only_file(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
         assert "telegram" in name
+
+
+def test_process_urls_from_file():
+    from src.main import process_urls
+
+    items = [{"category": "Software", "name": "Cursor", "description": "Editor con IA"}]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        md = _markdown_config(tmpdir)
+        urls_file = os.path.join(tmpdir, "urls.txt")
+        with open(urls_file, "w", encoding="utf-8") as f:
+            f.write(
+                "https://www.tiktok.com/@user/video/1\n"
+                "\n"
+                "# comentario\n"
+                "https://youtu.be/abc\n"
+            )
+        config = {
+            "telegram": {"bot_token": "TOKEN", "offset_file": os.path.join(tmpdir, "offset.txt")},
+            "whisper": {"model": "medium"},
+            "llm": LLM_CONFIG,
+            "markdown": md,
+            "categories": CATEGORIES,
+        }
+
+        with (
+            patch("src.main.download_video", return_value="/tmp/fake.mp4") as mock_dl,
+            patch("src.main.transcribe", return_value="Hablamos de Cursor"),
+            patch("src.main.extract_data", return_value=items),
+        ):
+            count = process_urls(config, urls_file)
+
+        assert count == 2
+        assert mock_dl.call_count == 2
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md"), encoding="utf-8") as f:
+            content = f.read()
+        assert "https://www.tiktok.com/@user/video/1" in content
+        assert "https://youtu.be/abc" in content
+        processed = os.listdir(os.path.join(md["vault_inbox_dir"], PROCESSED_DIR))
+        assert len(processed) == 2
+
+
+def test_process_urls_continues_after_failure():
+    from src.main import process_urls
+
+    items = [{"category": "Software", "name": "Zed", "description": "Editor"}]
+
+    def mock_download(parsed, tmp_dir, bot_token, max_duration_seconds=None):
+        if "malo" in parsed["url"]:
+            raise RuntimeError("download failed")
+        return "/tmp/fake.mp4"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        md = _markdown_config(tmpdir)
+        urls_file = os.path.join(tmpdir, "urls.txt")
+        with open(urls_file, "w", encoding="utf-8") as f:
+            f.write("https://youtu.be/malo\nhttps://youtu.be/bueno\n")
+        config = {
+            "telegram": {"bot_token": "TOKEN", "offset_file": os.path.join(tmpdir, "offset.txt")},
+            "whisper": {"model": "medium"},
+            "llm": LLM_CONFIG,
+            "markdown": md,
+            "categories": CATEGORIES,
+        }
+
+        with (
+            patch("src.main.download_video", side_effect=mock_download),
+            patch("src.main.transcribe", return_value="Hablamos de Zed"),
+            patch("src.main.extract_data", return_value=items),
+        ):
+            count = process_urls(config, urls_file)
+
+        assert count == 1
+        with open(os.path.join(md["vault_inbox_dir"], "Software.md"), encoding="utf-8") as f:
+            assert "https://youtu.be/bueno" in f.read()

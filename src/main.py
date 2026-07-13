@@ -189,18 +189,26 @@ def process_message(
     logger.info(f"Added {len(items)} items across summary files")
 
 
+def _process_kwargs(config: dict) -> dict:
+    """Shared process_message kwargs derived from the config (all but parsed/tmp_dir)."""
+    return {
+        "bot_token": config["telegram"]["bot_token"],
+        "whisper_model": config["whisper"]["model"],
+        "whisper_device": config["whisper"].get("device", "cpu"),
+        "whisper_compute_type": config["whisper"].get("compute_type", "int8"),
+        "llm_config": config["llm"],
+        "llm_fallback_config": config.get("llm_fallback"),
+        "markdown_config": config["markdown"],
+        "categories": config.get("categories", []),
+        "max_duration_seconds": config.get("processing", {}).get("max_duration_seconds"),
+    }
+
+
 def poll_once(config: dict) -> int:
     """Poll Telegram for pending messages and process them. Returns count of processed messages."""
     bot_token = config["telegram"]["bot_token"]
     offset_file = config["telegram"]["offset_file"]
-    whisper_model = config["whisper"]["model"]
-    whisper_device = config["whisper"].get("device", "cpu")
-    whisper_compute_type = config["whisper"].get("compute_type", "int8")
-    llm_config = config["llm"]
-    llm_fallback_config = config.get("llm_fallback")
-    markdown_config = config["markdown"]
-    categories = config.get("categories", [])
-    max_duration_seconds = config.get("processing", {}).get("max_duration_seconds")
+    kwargs = _process_kwargs(config)
 
     offset = read_offset(offset_file)
     updates = get_updates(bot_token, offset)
@@ -220,25 +228,35 @@ def poll_once(config: dict) -> int:
                 logger.debug(f"Skipping irrelevant message {message.get('message_id')}")
             else:
                 try:
-                    process_message(
-                        parsed=parsed,
-                        bot_token=bot_token,
-                        whisper_model=whisper_model,
-                        llm_config=llm_config,
-                        markdown_config=markdown_config,
-                        tmp_dir=tmp_dir,
-                        categories=categories,
-                        llm_fallback_config=llm_fallback_config,
-                        max_duration_seconds=max_duration_seconds,
-                        whisper_device=whisper_device,
-                        whisper_compute_type=whisper_compute_type,
-                    )
+                    process_message(parsed=parsed, tmp_dir=tmp_dir, **kwargs)
                     processed += 1
                 except Exception as e:
                     logger.error(f"Failed to process message: {e}")
 
             new_offset = update["update_id"] + 1
             write_offset(offset_file, new_offset)
+
+    return processed
+
+
+def process_urls(config: dict, urls_file: str) -> int:
+    """Process a file with one video URL per line (blank lines and # comments
+    ignored) through the full pipeline. Returns count of processed URLs."""
+    kwargs = _process_kwargs(config)
+
+    with open(urls_file, "r", encoding="utf-8") as f:
+        urls = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+
+    logger.info(f"Processing {len(urls)} URLs from {urls_file}")
+    processed = 0
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        for url in urls:
+            try:
+                process_message(parsed={"type": "url", "url": url}, tmp_dir=tmp_dir, **kwargs)
+                processed += 1
+            except Exception as e:
+                logger.error(f"Failed to process {url}: {e}")
 
     return processed
 
@@ -254,10 +272,22 @@ def main():
         metavar="SECONDS",
         help="Run in loop, polling every N seconds (default: 60)",
     )
+    parser.add_argument(
+        "--urls",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Process video URLs from a file (one per line) instead of polling Telegram",
+    )
     args = parser.parse_args()
 
     config_path = os.environ.get("INFOVIDEOGREP_CONFIG", "config.yaml")
     config = load_config(config_path)
+
+    if args.urls is not None:
+        count = process_urls(config, args.urls)
+        logger.info(f"Done, processed {count} URLs")
+        return
 
     if args.watch is not None:
         interval = args.watch
