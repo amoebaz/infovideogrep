@@ -8,25 +8,47 @@ _FENCE_CLOSE = re.compile(r"\n?```$")
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
+def _valid_item(item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return all(
+        isinstance(item.get(field), str) and item.get(field).strip()
+        for field in ("category", "name", "description")
+    )
+
+
 def _parse_items(content: str | None) -> list[dict]:
     """Parse the LLM response into a list of items, tolerating the common
-    ways models wrap JSON: markdown code fences and leading/trailing prose."""
+    ways models wrap JSON: markdown code fences and leading/trailing prose.
+
+    Raises ValueError when the response cannot be parsed into a conforming
+    ``{"items": [...]}`` object, so callers can retry with another model
+    instead of silently treating garbage as "nothing found"."""
     if not content:
-        return []
+        raise ValueError("unparseable LLM response")
     text = content.strip()
     if text.startswith("```"):
         text = _FENCE_CLOSE.sub("", _FENCE_OPEN.sub("", text)).strip()
+
+    parsed = None
     try:
-        return json.loads(text).get("items", [])
+        parsed = json.loads(text)
     except json.JSONDecodeError:
-        pass
-    match = _JSON_OBJECT.search(text)
-    if match:
-        try:
-            return json.loads(match.group(0)).get("items", [])
-        except json.JSONDecodeError:
-            return []
-    return []
+        match = _JSON_OBJECT.search(text)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                parsed = None
+
+    if not isinstance(parsed, dict) or "items" not in parsed:
+        raise ValueError("unparseable LLM response")
+
+    items = parsed["items"]
+    if not isinstance(items, list):
+        raise ValueError("unparseable LLM response")
+
+    return [item for item in items if _valid_item(item)]
 
 
 SYSTEM_PROMPT_TEMPLATE = """Eres un asistente que extrae información relevante de transcripciones de vídeos (TikTok, YouTube, Instagram Reels, etc.).

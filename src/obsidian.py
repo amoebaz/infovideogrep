@@ -52,20 +52,20 @@ def save_transcription(
         "# Transcripción\n\n"
         f"{text.strip()}\n"
     )
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     return path
 
 
 def update_estado(path: str, estado: str, intentos: int | None = None) -> None:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         content = f.read()
     frontmatter_end = content.index("\n---") + 1
     frontmatter = content[:frontmatter_end]
     frontmatter = re.sub(r"(?m)^estado: .*$", f"estado: {estado}", frontmatter, count=1)
     if intentos is not None:
         frontmatter = re.sub(r"(?m)^intentos: .*$", f"intentos: {intentos}", frontmatter, count=1)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(frontmatter + content[frontmatter_end:])
 
 
@@ -120,7 +120,7 @@ def append_to_markdown(path: str, entry: str, date_str: str) -> None:
 
     content = ""
     if os.path.exists(path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             content = f.read()
 
     if header in content:
@@ -140,5 +140,5 @@ def append_to_markdown(path: str, entry: str, date_str: str) -> None:
     dirname = os.path.dirname(path)
     if dirname:
         os.makedirs(dirname, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)

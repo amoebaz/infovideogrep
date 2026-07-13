@@ -1,4 +1,5 @@
 import json
+import pytest
 from unittest.mock import patch, MagicMock
 from src.extractor import extract_data, build_system_prompt, _parse_items
 
@@ -32,13 +33,43 @@ def test_parse_empty_items():
     assert _parse_items('{"items": []}') == []
 
 
-def test_parse_garbage_returns_empty():
-    assert _parse_items("lo siento, no puedo ayudarte") == []
+def test_parse_garbage_raises_value_error():
+    with pytest.raises(ValueError):
+        _parse_items("lo siento, no puedo ayudarte")
 
 
-def test_parse_none_or_empty():
-    assert _parse_items("") == []
-    assert _parse_items(None) == []
+def test_parse_none_or_empty_raises_value_error():
+    with pytest.raises(ValueError):
+        _parse_items("")
+    with pytest.raises(ValueError):
+        _parse_items(None)
+
+
+def test_parse_invalid_json_raises_value_error():
+    with pytest.raises(ValueError):
+        _parse_items("{not valid json")
+
+
+def test_parse_json_without_items_key_raises_value_error():
+    with pytest.raises(ValueError):
+        _parse_items('{"foo": "bar"}')
+
+
+def test_parse_drops_invalid_items_but_keeps_valid_ones():
+    content = json.dumps({
+        "items": [
+            {"category": "Software", "name": "Zed", "description": "Editor"},
+            {"category": "Software", "name": "Sin descripción"},
+            {"category": "Software", "name": "X", "description": ""},
+            {"category": "Software", "name": "Y", "description": 123},
+            "not a dict",
+            {"category": "Serie", "name": "Severance", "description": "Apple TV"},
+        ]
+    })
+    assert _parse_items(content) == [
+        {"category": "Software", "name": "Zed", "description": "Editor"},
+        {"category": "Serie", "name": "Severance", "description": "Apple TV"},
+    ]
 
 
 CATEGORY_NAMES = ["Software", "Serie", "Película", "Música", "Otro"]
