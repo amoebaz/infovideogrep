@@ -15,7 +15,14 @@ processing:
 llm:
   base_url: "https://openrouter.ai/api/v1"
   api_key: "${OPENROUTER_API_KEY}"
-  model: "minimax/minimax-m2.5:free"
+  # Los modelos :free de OpenRouter rotan entre 429/503/ok según el proveedor
+  # upstream, así que probamos varios en orden hasta que uno responda.
+  # OJO: no todos los modelos tienen variante :free (p.ej. minimax solo es de
+  # pago → :free da 404). Verifica con la API antes de añadir uno nuevo.
+  models:
+    - "z-ai/glm-4.5-air:free"
+    - "qwen/qwen3-next-80b-a3b-instruct:free"
+    - "meta-llama/llama-3.3-70b-instruct:free"
 
 llm_fallback:
   base_url: "http://localhost:11434/v1"

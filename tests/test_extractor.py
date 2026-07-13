@@ -1,6 +1,44 @@
 import json
 from unittest.mock import patch, MagicMock
-from src.extractor import extract_data, build_system_prompt
+from src.extractor import extract_data, build_system_prompt, _parse_items
+
+
+def test_parse_plain_json():
+    content = '{"items": [{"category": "Software", "name": "Zed", "description": "Editor"}]}'
+    assert _parse_items(content) == [
+        {"category": "Software", "name": "Zed", "description": "Editor"}
+    ]
+
+
+def test_parse_json_wrapped_in_markdown_fence():
+    content = (
+        "```json\n"
+        '{\n  "items": [\n'
+        '    {"category": "Serie", "name": "Severance", "description": "Apple TV"}\n'
+        "  ]\n}\n"
+        "```"
+    )
+    assert _parse_items(content) == [
+        {"category": "Serie", "name": "Severance", "description": "Apple TV"}
+    ]
+
+
+def test_parse_json_with_leading_prose():
+    content = 'Aquí tienes:\n{"items": [{"category": "Otro", "name": "X", "description": "y"}]}'
+    assert _parse_items(content) == [{"category": "Otro", "name": "X", "description": "y"}]
+
+
+def test_parse_empty_items():
+    assert _parse_items('{"items": []}') == []
+
+
+def test_parse_garbage_returns_empty():
+    assert _parse_items("lo siento, no puedo ayudarte") == []
+
+
+def test_parse_none_or_empty():
+    assert _parse_items("") == []
+    assert _parse_items(None) == []
 
 
 CATEGORY_NAMES = ["Software", "Serie", "Película", "Música", "Otro"]

@@ -99,6 +99,45 @@ def test_process_message_llm_all_fail_no_fallback():
         assert "Hablamos de algo interesante" in content
 
 
+def test_process_message_llm_chain_second_model_succeeds():
+    """First model in the chain fails, second model succeeds — no fallback needed."""
+    parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/555"}
+    llm_config = {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "key",
+        "models": ["broken/model:free", "working/model:free"],
+    }
+    items = [{"category": "Software", "name": "Zed", "description": "Editor rápido"}]
+
+    def mock_extract(text, config, category_names):
+        if config["model"] == "working/model:free":
+            return items
+        raise Exception("404 No endpoints found")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        inbox_path = os.path.join(tmpdir, "VideoInbox.md")
+
+        with (
+            patch("src.main.download_video", return_value="/tmp/fake.mp4"),
+            patch("src.main.transcribe", return_value="Hablamos de Zed"),
+            patch("src.main.extract_data", side_effect=mock_extract),
+        ):
+            process_message(
+                parsed=parsed,
+                bot_token="TOKEN",
+                whisper_model="medium",
+                llm_config=llm_config,
+                inbox_path=inbox_path,
+                tmp_dir=tmpdir,
+                categories=CATEGORIES,
+            )
+
+        with open(inbox_path, "r") as f:
+            content = f.read()
+        assert "Zed" in content
+        assert "transcripción sin procesar" not in content.lower()
+
+
 def test_process_message_fallback_llm_succeeds():
     """Primary LLM fails twice, fallback LLM succeeds."""
     parsed = {"type": "url", "url": "https://www.tiktok.com/@user/video/999"}

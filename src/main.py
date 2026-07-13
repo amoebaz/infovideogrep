@@ -68,12 +68,18 @@ def _extract_with_fallback(
     category_names: list[str],
     llm_fallback_config: dict | None,
 ) -> list[dict] | None:
-    """Try primary LLM with retry, fall back to secondary if configured."""
-    for attempt in range(2):
-        try:
-            return extract_data(text, llm_config, category_names)
-        except Exception as e:
-            logger.warning(f"Primary LLM attempt {attempt + 1} failed: {e}")
+    """Try each primary model in order (free tiers rotate between 429/503/ok),
+    with a retry per model, then fall back to the secondary LLM if configured."""
+    models = llm_config.get("models") or (
+        [llm_config["model"]] if llm_config.get("model") else []
+    )
+    for model in models:
+        model_config = {**llm_config, "model": model}
+        for attempt in range(2):
+            try:
+                return extract_data(text, model_config, category_names)
+            except Exception as e:
+                logger.warning(f"Primary LLM {model} attempt {attempt + 1} failed: {e}")
 
     if llm_fallback_config:
         logger.info("Switching to fallback LLM (Ollama)...")

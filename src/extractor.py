@@ -1,5 +1,32 @@
 import json
+import re
 from openai import OpenAI
+
+
+_FENCE_OPEN = re.compile(r"^```[a-zA-Z]*\n?")
+_FENCE_CLOSE = re.compile(r"\n?```$")
+_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _parse_items(content: str | None) -> list[dict]:
+    """Parse the LLM response into a list of items, tolerating the common
+    ways models wrap JSON: markdown code fences and leading/trailing prose."""
+    if not content:
+        return []
+    text = content.strip()
+    if text.startswith("```"):
+        text = _FENCE_CLOSE.sub("", _FENCE_OPEN.sub("", text)).strip()
+    try:
+        return json.loads(text).get("items", [])
+    except json.JSONDecodeError:
+        pass
+    match = _JSON_OBJECT.search(text)
+    if match:
+        try:
+            return json.loads(match.group(0)).get("items", [])
+        except json.JSONDecodeError:
+            return []
+    return []
 
 
 SYSTEM_PROMPT_TEMPLATE = """Eres un asistente que extrae información relevante de transcripciones de vídeos (TikTok, YouTube, Instagram Reels, etc.).
@@ -44,9 +71,4 @@ def extract_data(
         ],
         temperature=0.1,
     )
-    content = response.choices[0].message.content
-    try:
-        data = json.loads(content)
-        return data.get("items", [])
-    except json.JSONDecodeError:
-        return []
+    return _parse_items(response.choices[0].message.content)

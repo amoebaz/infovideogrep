@@ -25,7 +25,7 @@ Telegram bot ──► parser ──► descarga (yt-dlp / Telegram API) ──�
    - Enlaces → `yt-dlp`.
    - Antes de descargar URLs comprueba la duración con `yt-dlp --skip-download` y descarta lo que excede `processing.max_duration_seconds`.
 3. **Transcripción**: faster-whisper con el modelo configurado (por defecto `medium` en GPU CUDA).
-4. **Extracción**: prompt al LLM principal con la lista de categorías permitidas. Si falla dos veces, cae a Ollama local (que se autoarranca y descarga el modelo si hace falta).
+4. **Extracción**: prompt al LLM con la lista de categorías permitidas. Se prueban en orden los modelos de `llm.models` (los `:free` de OpenRouter rotan entre 429/503/ok), con un reintento por modelo. Si todos fallan, cae a Ollama local (que se autoarranca y descarga el modelo si hace falta). La respuesta se parsea tolerando JSON envuelto en bloques markdown.
 5. **Volcado**: añade la entrada bajo la cabecera `## YYYY-MM-DD` del markdown configurado.
 
 ## Plataformas soportadas
