@@ -139,6 +139,20 @@ def test_update_estado_rewrites_frontmatter_only():
         assert "estado: falso en el cuerpo no se toca" in content
 
 
+def test_update_estado_url_with_triple_dash_does_not_corrupt():
+    with tempfile.TemporaryDirectory() as vault:
+        path = save_transcription(
+            vault, url="https://example.com/v?id=a---b", text="cuerpo", dt=DT, slug="x"
+        )
+        update_estado(path, "error_llm", intentos=1)
+        with open(path) as f:
+            content = f.read()
+        assert "estado: error_llm" in content
+        assert "intentos: 1" in content
+        assert "url: https://example.com/v?id=a---b" in content
+        assert "cuerpo" in content
+
+
 def test_mark_processed_moves_to_processed_dir():
     with tempfile.TemporaryDirectory() as vault:
         path = save_transcription(vault, url="u", text="hola", dt=DT, slug="youtube")

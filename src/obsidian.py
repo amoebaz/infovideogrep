@@ -60,7 +60,7 @@ def save_transcription(
 def update_estado(path: str, estado: str, intentos: int | None = None) -> None:
     with open(path, "r") as f:
         content = f.read()
-    frontmatter_end = content.index("---", 3)
+    frontmatter_end = content.index("\n---") + 1
     frontmatter = content[:frontmatter_end]
     frontmatter = re.sub(r"(?m)^estado: .*$", f"estado: {estado}", frontmatter, count=1)
     if intentos is not None:
